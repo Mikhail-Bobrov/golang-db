@@ -1,0 +1,443 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "timescaledb-default-main-admin"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+data:
+  replicator: ""
+  replicator-password: ""
+  superuser: ""
+  superuser-password: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "timescaledb-default-main-read"
+  namespace: "default"
+  labels:
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+    "cluster-namespace": "default"
+    "cluster-namespace-permission": "READ"
+data:
+  "host": ""
+  "port": ""
+  "user": ""
+  "password": ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "timescaledb-default-main-write"
+  namespace: "default"
+  labels:
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+    "cluster-namespace": "default"
+    "cluster-namespace-permission": "WRITE"
+data:
+  "host": ""
+  "port": ""
+  "user": ""
+  "password": ""
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "timescaledb-default-main-master"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+spec:
+  clusterIP: "None"
+  selector:
+    "role": "master"
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+  ports:
+    - port: 5432
+      name: sql
+    - port: 8008
+      name: patroni
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "timescaledb-default-main-replica"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+spec:
+  clusterIP: "None"
+  selector:
+    "role": "replica"
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+  ports:
+    - port: 5432
+      name: sql
+    - port: 8008
+      name: patroni
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "timescaledb-default-main"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+spec:
+  clusterIP: "None"
+  selector:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "default-main"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+spec:
+  clusterIP: "None"
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "timescaledb-default-main-patroni-config"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+data:
+  patroni.yaml.template: |
+    scope: timescale-main
+    namespace: default
+    name: $POD_NAME
+
+    kubernetes:
+      namespace: default
+      labels: { app: timescaledb-default-main, component: timescaledb, cluster-name: timescale-main }
+      use_endpoints: true
+      pod_ip: $POD_IP
+
+    restapi:
+      listen: 0.0.0.0:8008
+      connect_address: $POD_IP:8008
+
+    watchdog:
+      mode: off
+
+    bootstrap:
+      pg_hba:
+        - local all  all  trust
+        - host  all all 127.0.0.1/32 trust
+        - host  all all ::1/128 trust
+        - local replication  all trust
+        - host  replication all 127.0.0.1/32 trust
+        - host  replication all ::1/128 trust
+        - host replication replicator 0.0.0.0/0 md5
+        - host all all 0.0.0.0/0 md5
+      initdb:
+        - auth-host: md5
+        - auth-local: trust
+        - encoding: UTF8
+        - locale: en_US.UTF-8
+        - data-checksums
+      dcs:
+        ttl: 30
+        loop_wait: 10
+        retry_timeout: 10
+        maximum_lag_on_failover: 1048576
+        master_start_timeout: 120
+        synchronous_mode: false
+        postgresql:
+        # random configuration
+          use_slots: true
+          use_pg_rewind: true
+          parameters:
+            hot_standby: 'on'
+            max_connections: '187'
+            pg_stat_statements.track: all
+            wal_level: replica
+            max_wal_senders: 10
+            wal_log_hints: 'on'
+            pg_stat_statements.max: 10000
+            maintenance_work_mem: '64MB'
+            max_prepared_transactions: '187'
+            shared_preload_libraries: pg_stat_statements
+            effective_cache_size: '2250MB'
+            log_min_messages: WARNING
+            log_min_error_statement: ERROR
+            wal_keep_segments: 24
+            track_commit_timestamp: 'on'
+            wal_compression: 'on'
+            log_min_duration_statement: '1000ms'
+            archive_mode: off
+            max_replication_slots: 5
+            work_mem: '4MB'
+
+    log:
+      level: INFO
+
+    postgresql:
+      listen: 0.0.0.0:5432
+      connect_address: $POD_IP:5432
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "timescaledb-default-main-metrics"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+data:
+  queries.yaml  : |+
+
+    pg_stat_archiver:
+      query: "SELECT archived_count,failed_count FROM pg_stat_archiver"
+      metrics:
+        - archived_count:
+            usage: "GAUGE"
+            description: "Number of WAL files that have been successfully archived"
+        - failed_count:
+            usage: "GAUGE"
+            description: "Number of failed attempts for archiving WAL files"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "timescaledb-default-main"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "timescaledb-default-main"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints","pods","services"]
+    verbs: ["create", "delete", "deletecollection", "get", "list", "patch", "update", "watch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: "timescaledb-default-main"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+roleRef:
+  kind: Role
+  name: "timescaledb-default-main"
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: "timescaledb-default-main"
+    namespace: "default"
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: "timescaledb-default-main"
+  namespace: "default"
+  labels:
+    "app": "timescaledb-default-main"
+    "component": "timescaledb"
+    "cluster-name": "timescale-main"
+spec:
+  podManagementPolicy: "Parallel"
+  replicas: 1
+  serviceName: "timescaledb-default-main"
+  selector:
+    matchLabels:
+      "app": "timescaledb-default-main"
+      "component": "timescaledb"
+      "cluster-name": "timescale-main"
+  template:
+    metadata:
+      namespace: "default"
+      labels:
+        "app": "timescaledb-default-main"
+        "component": "timescaledb"
+        "cluster-name": "timescale-main"
+        "database-metrics-enabled": "true"
+    spec:
+      containers:
+        - name: timescaledb
+          image: docker.io/timescaledb:release-1.0.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 2000.0m
+              memory: 2048Mi
+          ports:
+            - containerPort: 5432
+              name: sql
+            - containerPort: 8008
+              name: patroni
+          readinessProbe:
+            exec:
+              command:
+                - /home/postgres/health-check.sh
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PATRONI_REPLICATION_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-default-main-admin
+                  key: replicator
+            - name: PATRONI_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-default-main-admin
+                  key: replicator-password
+            - name: PATRONI_SUPERUSER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-default-main-admin
+                  key: superuser
+            - name: PATRONI_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-default-main-admin
+                  key: superuser-password
+            - name: ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-default-main-write
+                  key: user
+            - name: ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-default-main-write
+                  key: password
+          volumeMounts:
+            - name: timescaledb-default-main-data
+              mountPath: /var/lib/postgresql/volume
+            - name: patroni-config
+              mountPath: /home/postgres/patroni
+        - name: timescaledb-sidecar
+          image: quay.io/prometheuscommunity/postgres-exporter:v0.11.1
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 50m
+              memory: 48Mi
+            requests:
+              cpu: 50m
+              memory: 48Mi
+          ports:
+            - containerPort: 9187
+              name: exporter
+          env:
+          - name: DATA_SOURCE_NAME
+            value: postgres://$(DATA_SOURCE_USER):$(DATA_SOURCE_PASS)@localhost:5432/*?sslmode=disable
+          - name: DATA_SOURCE_USER
+            valueFrom:
+              secretKeyRef:
+                key: superuser
+                name: timescaledb-default-main-admin
+          - name: DATA_SOURCE_PASS
+            valueFrom:
+              secretKeyRef:
+                key: superuser-password
+                name: timescaledb-default-main-admin
+          - name: PG_EXPORTER_EXTEND_QUERY_PATH
+            value: /home/queries.yaml
+          volumeMounts:
+            - name: timescaledb-default-main-data
+              mountPath: /var/lib/postgresql/volume
+            - name: timescaledb-metrics
+              mountPath: /home/
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - "timescaledb-default-main"
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 70
+        runAsGroup: 70
+        runAsUser: 70
+      serviceAccountName: "timescaledb-default-main"
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 90
+      volumes:
+        - name: patroni-config
+          configMap:
+            name: timescaledb-default-main-patroni-config
+        - name: timescaledb-metrics
+          configMap:
+            name: timescaledb-default-main-metrics
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: timescaledb-default-main-data
+      namespace: "default"
+    spec:
+      storageClassName: "csi-rbd"
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: "30Gi"
+
