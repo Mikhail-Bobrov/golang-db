@@ -4,17 +4,8 @@ dateNew=$(date "+%F")
 dateOld=$(date "+%F"  --date="1 day ago")
 date2dayAgo=$(date "+%F"  --date="2 day ago")
 dateFuture=$(date --date="12/31/2025" "+%F")
-echo "select date_part('day', created_at) date1, count(distinct(auth_way_value)) users from user_sign_in where created_at BETWEEN '$dateOld' AND '$dateFuture' group by date1 order by date1;" > /home/ubuntu/daily-report-/kalendar.txt
-echo "copy (  
-select o.id, o.name, count(distinct(usi.auth_way_value)) active_users from 
-organization as o  
-left outer join chat_user as ca on o.id = ca.organization_id 
-left outer join user_auth as ua on ca.id=ua.user_id 
-left outer join user_sign_in as usi on (usi.auth_way_value=ua.auth_way_value    
-and (usi.created_at BETWEEN '$dateOld' AND '$dateNew'))  
-group by o.id, o.name  
-order by o.name)                                                                      
-TO '/tmp/active-users-by-organization.csv' (FORMAT CSV, HEADER TRUE, DELIMITER ';', ENCODING 'UTF8');" > /home/ubuntu/daily-report-/active-user.txt
+echo "select " > /home/ubuntu/daily-report-/kalendar.txt
+echo "select " > /home/ubuntu/daily-report-/active-user.txt
 
 sleep 1
 activeUser=$(cat /home/ubuntu/daily-report-/active-user.txt)
