@@ -1,0 +1,8 @@
+certificates:
+  - path: "certs/cert1.crt"
+    format: "pem"
+  - path: "certs/cert2.crt"
+    format: "pem"
+  - path: "certs/kafka.server.keystore.pfx"
+    format: "pfx"
+    password: "1231234"
