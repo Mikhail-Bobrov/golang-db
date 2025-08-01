@@ -1,0 +1,199 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: overengineered
+  namespace: stage1
+  labels:
+    app: overengineered
+    tier: "ultra-backend"
+    owner: "team-chaos"
+  annotations:
+    app: overengineered
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+spec:
+  replicas: 7
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: "25%"
+      maxUnavailable: "10%"
+  selector:
+    matchLabels:
+      app: overengineered
+      tier: "ultra-backend"
+  template:
+    metadata:
+      labels:
+        app: overengineered
+        tier: "ultra-backend"
+        version: "v42.0.0"
+        shard: "alpha"
+      annotations:
+        consul.io/connect-inject: "true"
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "overengineered-app"
+        linkerd.io/inject: "enabled"
+    spec:
+      serviceAccountName: overengineered-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      initContainers:
+      - name: config-downloader
+        image: busybox:1.36
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            echo "Downloading top-secret configs...";
+            wget https://internal-config-store/overengineered/v42/config.tar.gz -O /tmp/config.tar.gz;
+            tar -xzvf /tmp/config.tar.gz -C /etc/app-config;
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/app-config
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "64Mi"
+      containers:
+      - name: main-app
+        image: registry.supercorp.io/overengineered/app:v42.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        env:
+        - name: ENVIRONMENT
+          value: "prod-megalopolis"
+        - name: CONFIG_HASH
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['config.hash']
+        - name: SECRET_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: overengineered-secrets
+              key: db_password
+        envFrom:
+        - configMapRef:
+            name: overengineered-env
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+            ephemeral-storage: "5Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+            ephemeral-storage: "10Gi"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: https
+            scheme: HTTP
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: https
+            scheme: HTTP
+            httpHeaders:
+            - name: X-Readiness-Check
+              value: "true"
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 2
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /started
+            port: http
+          failureThreshold: 30
+          periodSeconds: 5
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 30"]
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/app-config
+          readOnly: true
+        - name: data-volume
+          mountPath: /var/data
+      - name: sidecar-metrics
+        image: prom/statsd-exporter:v0.25.0
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "64Mi"
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+        ports:
+        - containerPort: 9102
+          name: metrics
+        args: ["--statsd.mapping-config=/etc/statsd/mapping.yml"]
+        volumeMounts:
+        - name: statsd-config
+          mountPath: /etc/statsd
+      volumes:
+      - name: config-volume
+        emptyDir: {}
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: overengineered-data-pvc
+      - name: statsd-config
+        configMap:
+          name: statsd-mapping-config
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values: ["amd64"]
+              - key: node-role.supercorp.io/overengineered
+                operator: Exists
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: topology.kubernetes.io/zone
+                operator: In
+                values: ["zone-a", "zone-b"]
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values: ["overengineered"]
+            topologyKey: "kubernetes.io/hostname"
+      tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "overengineered"
+        effect: "NoSchedule"
+      - key: "spot-instance"
+        operator: "Exists"
+        effect: "PreferNoSchedule"
+      priorityClassName: "system-cluster-critical"
+      hostAliases:
+      - ip: "10.42.42.42"
+        hostnames:
+        - "internal-api.supercorp.local"
+      terminationGracePeriodSeconds: 180
